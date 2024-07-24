@@ -2,6 +2,7 @@ import arcpy
 
 # Set the workspace - change this to your actual workspace
 arcpy.env.workspace = r"Place Feature Database Path Here"
+trace_network = r"Place Trace Network Path Here"
 water_mains_fc = "Place Water Main Layer Name Here"
 water_valves_fc = "Place Water Valve Layer Name Here"
 
@@ -19,7 +20,7 @@ def create_in_memory_point(input_line_layer, point_name):
 def perform_trace(start_point_feature, barrier_layer):
     #Will generate a trace line that is multi-point.
     arcpy.tn.Trace(
-        in_trace_network=r"C:\Users\esailor\OneDrive - Abonmarche\Documents\ArcGIS\Projects\Elkhart Edits\Elkhart Edits.gdb\LocationSet\Trace",
+        in_trace_network=trace_network,
         trace_type="CONNECTED",
         starting_points=start_point_feature,
         barriers=barrier_layer,
@@ -38,8 +39,8 @@ def perform_trace(start_point_feature, barrier_layer):
         selection_type="NEW_SELECTION",
         clear_all_previous_trace_results="CLEAR_ALL_PREVIOUS_TRACE_RESULTS",
         trace_name="trace",
-        aggregated_points="GH_Trace_Points",
-        aggregated_lines="GH_Trace_Lines",
+        aggregated_points="Trace_Points",
+        aggregated_lines="Trace_Lines",
         out_network_layer=None,
         use_trace_config="DO_NOT_USE_TRACE_CONFIGURATION",
         trace_config_name="",
@@ -71,9 +72,9 @@ def main():
                 #Will preform a trace on the point
                 perform_trace(row[1], water_valves_fc)
                 #Will place the feature in the feature storage
-                arcpy.Append_management("GH_Trace_Lines", iso_zone_fc, "NO_TEST")\
+                arcpy.Append_management("Trace_Lines", iso_zone_fc, "NO_TEST")\
                 #Will identify all points that are on the trace
-                Storage_Values = arcpy.management.SelectLayerByLocation("Water_Centroids", "INTERSECT", "GH_Trace_Lines", 0, "NEW_SELECTION")
+                Storage_Values = arcpy.management.SelectLayerByLocation("Water_Centroids", "INTERSECT", "Trace_Lines", 0, "NEW_SELECTION")
                 #Will place all points in the used points list to ensure that none of them are checked again
                 with arcpy.da.SearchCursor(Storage_Values, ["OID@", "SHAPE@"]) as removePoint:
                     for row in removePoint:
