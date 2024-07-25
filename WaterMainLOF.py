@@ -49,9 +49,6 @@ arcpy.conversion.ExportFeatures(water_main_url, "WaterMainFC")
 # export the breaks feature service to a feature class
 arcpy.conversion.ExportFeatures(breaks_url, "BreaksFC")
 
-# list the itmes in the workspace
-arcpy.ListFeatureClasses()
-
 water_main = "WaterMainFC"
 breaks = "BreaksFC"
 columns = [UniqueID, InstallDate, Material]
@@ -91,8 +88,8 @@ WM_sl_Calc_df.loc[WM_sl_Calc_df['Service Life Score'] > 10, 'Service Life Score'
 WM_sl_Calc_df.loc[WM_sl_Calc_df['Service Life Score'] <= 0, 'Service Life Score'] = 1
 
 # save to csv
-output_path = os.path.join(results_folder, "Service_Life.csv")
-WM_sl_Calc_df.to_csv(output_path, index=False)
+# output_path = os.path.join(results_folder, "Service_Life.csv")
+# WM_sl_Calc_df.to_csv(output_path, index=False)
 
 # spatial join water mains to breaks to get the pipe FacilityID into the breaks table
 if breaks and breaks != "":
