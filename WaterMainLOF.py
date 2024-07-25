@@ -30,9 +30,13 @@ user_gis = get_gis(user)
 
 # User Variables
 workspace = r"memory"
-results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\GIS Projects\2023\23-0304 Grand Haven CDSMI\ArcGIS Pro\GH Risk Analysis\Results"
-water_main_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Utilities/FeatureServer/6"
-breaks_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Utilities/FeatureServer/5"
+results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults"
+service_life_table = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganServiceLife.csv"
+water_main_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"
+breaks_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/5"
+UniqueID = "FACILITYID"
+InstallDate = "PLACEDINSE"
+Material = "MATERIAL"
 
 arcpy.env.workspace = workspace
 arcpy.env.overwriteOutput = True
@@ -50,53 +54,32 @@ arcpy.ListFeatureClasses()
 
 water_main = "WaterMainFC"
 breaks = "BreaksFC"
+columns = [UniqueID, InstallDate, Material]
 
 # Water main feature class to pandas dataframe
 water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
-# keep only columns FACILITYID, DIAMETER, MATERIAL, and INSTALLATION_DATE
-water_main_df = water_main_df[['FACILITYID', 'DIAMETER', 'MATERIAL', 'INSTALLDATE']]
+# keep only columns as specified in list
+water_main_df = water_main_df[columns]
+water_main_df = water_main_df.replace(r'^\s*$', np.nan, regex=True)
 water_main_df = water_main_df.dropna()
+# make sure UniqueID and material are strings and InstallDate is a datetime object
+water_main_df[UniqueID] = water_main_df[UniqueID].astype(str)
+water_main_df[Material] = water_main_df[Material].astype(str)
+water_main_df[InstallDate] = pd.to_datetime(water_main_df[InstallDate], errors='coerce')
 
-# get the domain table for pipe material and use it to change the material value in the dataframe to the description
-# set the output path
-domain_table_path = os.path.join(results_folder, "PipeDomains.csv")
-# Export the domain to a table
-arcpy.management.DomainToTable(
-    in_workspace=workspace,
-    domain_name="piPipeMaterial",
-    out_table=domain_table_path,
-    code_field="Code",
-    description_field="Description",
-    configuration_keyword=""
-)
+# # make a dataframe to store service life of different pipe materials
+# pipe_materials = ['Cast Iron', 'Ductile Iron', 'Polyvinyl Chloride', 'Asbestos Cement', 'High Density Polyethylene', 'Copper', 'Galvanized Pipe']
+# pipe_service_life = [75, 90, 90, 70, 100, 100, 50]
+# pipe_service_life_df = pd.DataFrame({Material: pipe_materials, 'Service Life': pipe_service_life})
 
-# Read the table into a pandas DataFrame
-domain_df = pd.read_csv(domain_table_path)
-
-# Delete the csv file
-os.remove(domain_table_path)
-
-# remove the .xml, .ini, and .csv.xml files the geoprocess also created
-for file in os.listdir(os.path.join(dir_path, "Results")):
-    if file.endswith(".xml") or file.endswith(".ini"):
-        os.remove(results_folder + "\\" + file)
-
-# map the material code to the description
-water_main_df['MATERIAL'] = water_main_df['MATERIAL'].map(domain_df.set_index('Code')['Description'])
-WM_sl_df = water_main_df.copy()
-
-# make a dataframe to store service life of different pipe materials
-pipe_materials = ['Cast Iron', 'Ductile Iron', 'Polyvinyl Chloride', 'Asbestos Cement', 'High Density Polyethylene', 'Copper', 'Galvanized Pipe']
-pipe_service_life = [75, 90, 90, 70, 100, 100, 50]
-pipe_service_life_df = pd.DataFrame({'MATERIAL': pipe_materials, 'Service Life': pipe_service_life})
-
+# read the service life table into a dataframe
+pipe_service_life_df = pd.read_csv(service_life_table)
 
 # copy the water main dataframe add rows for age, service life, and lof then calculate lof as age/service life
-WM_sl_Calc_df = WM_sl_df.copy()
-WM_sl_Calc_df['Age'] = datetime.now().year - WM_sl_Calc_df['INSTALLDATE'].dt.year
-WM_sl_Calc_df = WM_sl_Calc_df.merge(pipe_service_life_df, on='MATERIAL', how='left')
+WM_sl_Calc_df = water_main_df.copy()
+WM_sl_Calc_df['Age'] = datetime.now().year - WM_sl_Calc_df[InstallDate].dt.year
+WM_sl_Calc_df = WM_sl_Calc_df.merge(pipe_service_life_df, left_on=Material, right_on='Material', how='left')
 WM_sl_Calc_df['Service Life Score'] = WM_sl_Calc_df['Age'] / WM_sl_Calc_df['Service Life'] * 10
-
 
 # round the Service life score and adjusted service life score values to the next whole number
 WM_sl_Calc_df['Service Life Score'] = np.ceil(WM_sl_Calc_df['Service Life Score'])
@@ -128,20 +111,20 @@ if breaks and breaks != "":
     if int(result_count.getOutput(0)) > 0:
         # convert the spatial join result to a pandas dataframe
         breaks_mains_join_df = pd.DataFrame.spatial.from_featureclass(breaks_mains_join)
-        breaks_mains_join_df = breaks_mains_join_df[['OBJECTID', 'Join_Count', 'FACILITYID']]
+        breaks_mains_join_df = breaks_mains_join_df[['OBJECTID', 'Join_Count', UniqueID]]
         breaks_mains_join_df = breaks_mains_join_df.dropna()
 
         # make a datafreame from the mains and only keep facilityid, and drop rows with null values
         water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
-        water_main_df = water_main_df[['FACILITYID',]]
+        water_main_df = water_main_df[[UniqueID]]
         water_main_df = water_main_df.dropna()
 
         # use the breaks dataframe to get the count of breaks for each pipe and add it to the water main dataframe in a Breaks column
-        # Group the breaks_mains_join_df by 'FACILITYID' and count the number of breaks for each 'FACILITYID'
-        breaks_count = breaks_mains_join_df.groupby('FACILITYID').size().reset_index(name='Breaks')
+        # Group the breaks_mains_join_df by UniqueID and count the number of breaks for each UniqueID
+        breaks_count = breaks_mains_join_df.groupby(UniqueID).size().reset_index(name='Breaks')
 
-        # Merge the water_main_df with the breaks_count dataframe on 'FACILITYID'
-        breaks_df = pd.merge(water_main_df, breaks_count, on='FACILITYID', how='left')
+        # Merge the water_main_df with the breaks_count dataframe on UniqueID
+        breaks_df = pd.merge(water_main_df, breaks_count, on=UniqueID, how='left')
 
         # Fill NaN values in the 'Breaks' column with 0
         breaks_df['Breaks'] = breaks_df['Breaks'].fillna(0)
@@ -161,21 +144,21 @@ if breaks and breaks != "":
         output_path = os.path.join(results_folder, "Breaks.csv")
         breaks_df.to_csv(output_path, index=False)
 
-        # Merge the dataframes on 'FACILITYID'
-        LOF_df = pd.merge(WM_sl_Calc_df, breaks_df, on='FACILITYID', how='left')
+        # Merge the dataframes on UniqueID
+        LOF_df = pd.merge(WM_sl_Calc_df, breaks_df, on=UniqueID, how='left')
 
     else:
         print("No features in the spatial join result")
         LOF_df = WM_sl_Calc_df.copy()
 
-# fill missing values with 0
-LOF_df= LOF_df.fillna(0)
+# drop missing values again
+LOF_df= LOF_df.dropna()
 # calculate the LOF as (Service Life Score x 0.50) + (Breaks Score x 0.50) if Breaks_score column exists
 if 'Breaks_score' in LOF_df.columns:
-    LOF_df['LOF'] = (LOF_df['Service Life Score'] * 0.5) + (LOF_df['Breaks_score'] * 0.5)
+    LOF_df.loc[:, 'LOF'] = (LOF_df['Service Life Score'] * 0.5) + (LOF_df['Breaks_score'] * 0.5)
 else:
-    LOF_df['LOF'] = LOF_df['Service Life Score']
-LOF_df['LOF'] = np.ceil(LOF_df['LOF'])
+    LOF_df.loc[:, 'LOF'] = LOF_df['Service Life Score']
+LOF_df.loc[:, 'LOF'] = np.ceil(LOF_df['LOF'])
 
 # Save the final dataframe to a csv file
 output_path = os.path.join(results_folder, "Final_LOF.csv")
