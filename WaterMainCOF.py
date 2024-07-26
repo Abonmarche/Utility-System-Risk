@@ -36,7 +36,7 @@ arcpy.env.overwriteOutput = True
 arcpy.env.maintainAttachments = False
 dir_path = os.getcwd()
 
-# User Variables
+# User Variables list water main first
 results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults"
 feature_services = [
     ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"),
@@ -50,13 +50,17 @@ feature_services = [
     ("WaterAreas", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/7"),
     ("ROW", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/8"),
     ("Parcels", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/9"),
-    #("isozones", "https://services6.arcgis.com")
+    ("isozones", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_IsoZone/FeatureServer/0")
 ]
+
+# New variable to store a list of static features to analyze
+features_to_analyze = ["Buildings", "ROW", "WaterAreas", "WaterLines"]
 
 # water main fields
 UniqueID = "FACILITYID"
 InstallDate = "PLACEDINSE"
 Material = "MATERIAL"
+Diameter = "DIAMETER"
 
 # roadway values
 RoadwayType = "Road"
@@ -70,8 +74,8 @@ for fc_name, url in feature_services:
     arcpy.conversion.ExportFeatures(url, fc_name)
 
 # list feature classes
-#feature_classes = arcpy.ListFeatureClasses()
-#feature_classes
+# feature_classes = arcpy.ListFeatureClasses()
+# feature_classes
 
 # split the Roadway feature class by the RoadwayType field
 arcpy.analysis.SplitByAttributes(feature_services[5][0], workspace, RoadwayType)
@@ -89,10 +93,15 @@ near_feature_classes = [
 ]
 
 # Add other static feature classes
-near_feature_classes.extend(["Buildings", "ROW", "WaterAreas", "WaterLines"])
+near_feature_classes.extend(features_to_analyze)
 
 water_main = feature_services[0][0]
-columns = [UniqueID, InstallDate, Material]
+columns = ["OBJECTID", UniqueID, InstallDate, Material, Diameter]
+# make a water main dataframe with just the columns
+water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
+# drop any column not in columns
+water_main_df = water_main_df.drop(columns=[col for col in water_main_df.columns if col not in columns])
+water_main_df.head()
 
 # Dictionary to store the dataframes
 dfs = {}
@@ -116,6 +125,8 @@ for fc in near_feature_classes:
     # Convert near table csv to dataframe
     near_df = pd.read_csv(output_path)
 
+    # remove the out_table
+    os.remove(output_path)
     # remove the .xml, .ini, and .csv.xml files the geoprocess also created
     for file in os.listdir(results_folder):
         if file.endswith(".xml") or file.endswith(".ini"):
@@ -129,11 +140,19 @@ for fc in near_feature_classes:
     # Add the dataframe to the dictionary
     dfs[fc] = near_df
 
-# Merge the dataframes with the Near_results_df removing the IN_FID column each time
-for key, value in dfs.items():
-    Near_results_df = pd.merge(Near_results_df, value, left_on='OBJECTID', right_on='IN_FID', how='left')
-    Near_results_df = Near_results_df.drop(columns=['IN_FID'])
+# Initialize Near_results_df with the first dataframe in dfs
+Near_results_df = next(iter(dfs.values()))
 
-Near_results_df.head()
-# save the Near_results_df to a csv file using dir_path
-Near_results_df.to_csv(os.path.join(dir_path, "Results", "NearResults.csv"), index=False)
+# Merge the dataframes with the Near_results_df removing the IN_FID column each time
+for key, value in list(dfs.items())[1:]:
+    Near_results_df = pd.merge(Near_results_df, value, left_on='IN_FID', right_on='IN_FID', how='left')
+
+# merge the water_main_df with the Near_results_df
+Near_results_df = pd.merge(water_main_df, Near_results_df, left_on='OBJECTID', right_on='IN_FID', how='left')
+
+# Drop the IN_FID column after the merge
+Near_results_df = Near_results_df.drop(columns=['IN_FID'])
+
+# Save the Near_results_df to a csv file using dir_path
+# Near_results_df.to_csv(os.path.join(results_folder, "NearResults.csv"), index=False)
+
