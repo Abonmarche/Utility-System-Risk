@@ -39,18 +39,18 @@ dir_path = os.getcwd()
 # User Variables *keep them in this order*
 results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults"
 feature_services = [
-    ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"),
-    ("WaterLaterals", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/4"),
-    ("CriticalCustomers", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/1"),
-    ("SchoolChildcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/2"),
-    ("Healthcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/3"),
-    ("Roadway", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/4"),
-    ("Buildings", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/5"),
-    ("WaterLines", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/6"),
-    ("WaterAreas", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/7"),
-    ("ROW", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/8"),
-    ("Parcels", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/9"),
-    ("isozones", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_IsoZone/FeatureServer/0")
+    ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"), #0
+    ("WaterLaterals", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/4"), #1
+    ("CriticalCustomers", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/1"), #2
+    ("SchoolChildcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/2"), #3
+    ("Healthcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/3"), #4
+    ("Roadway", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/4"), #5
+    ("Buildings", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/5"), #6
+    ("WaterLines", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/6"), #7
+    ("WaterAreas", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/7"), #8
+    ("ROW", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/8"), #9
+    ("Parcels", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/9"), #10
+    ("isozones", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_IsoZone/FeatureServer/0") #11
 ]
 
 # New variable to store a list of static features to analyze
@@ -68,6 +68,9 @@ MajorRoad = "Major Road"
 MinorRoad = "Minor Road"
 MajorIntersection = "Major Intersection"
 MinorIntersection = "Minor Intersection"
+
+# Parcels fields
+ParcelUID = "PARCELID"
 
 # Export each feature service to a feature class
 for fc_name, url in feature_services:
@@ -220,4 +223,107 @@ mains_iso_df['affected_lats'] = mains_iso_df['zone'].map(summary_df.set_index('z
 # merge the mains_iso_df with the Near_results_df
 mains_iso_df = pd.merge(Near_results_df, mains_iso_df, left_on=UniqueID, right_on=UniqueID, how='left')
 
-# affected critical customers
+# Function to identify critical customer connections
+# critical_customers_fc is the critical customers feature class, parcels_fc is the parcels feature class, laterals_fc is the laterals feature class, water_main_fc is the water main feature class, and parcel_uid_field is the field in the parcels feature class that is the unique id
+def identify_critical_customer_connections(
+    critical_customers_fc, parcels_fc, laterals_fc, water_main_fc, parcel_uid_field
+):
+    # Spatial join parcels to critical customers
+    parcels_critical_join = "parcels_critical_join"
+    arcpy.analysis.SpatialJoin(
+        target_features=parcels_fc,
+        join_features=critical_customers_fc,
+        out_feature_class=parcels_critical_join,
+        join_operation="JOIN_ONE_TO_ONE",
+        join_type="KEEP_COMMON",
+    )
+    
+    # Identify lateral lines that intersect the spatial join of parcels and critical customers using spatial join
+    lats_critical_join = "Lats_Critical_Join"
+    arcpy.analysis.SpatialJoin(
+        target_features=laterals_fc,
+        join_features=parcels_critical_join,
+        out_feature_class=lats_critical_join,
+        join_operation="JOIN_ONE_TO_ONE",
+        join_type="KEEP_COMMON",
+    )
+    
+    # Spatial join the critical lateral results to the rest of the laterals by intersect to identify both sides of the service
+    lats_critical_join_all = "Lats_Critical_Join_All"
+    arcpy.analysis.SpatialJoin(
+        target_features=laterals_fc,
+        join_features=lats_critical_join,
+        out_feature_class=lats_critical_join_all,
+        join_operation="JOIN_ONE_TO_ONE",
+        join_type="KEEP_COMMON",
+        match_option="INTERSECT",
+    )
+    
+    # Dissolve the spatial join results by parcel id to create one line feature for each critical customer service connection
+    lats_critical_dissolve = "Lats_Critical_Dissolve"
+    arcpy.management.Dissolve(
+        in_features=lats_critical_join_all,
+        out_feature_class=lats_critical_dissolve,
+        dissolve_field=parcel_uid_field,
+    )
+    
+    # Spatial join the dissolved feature class to the water main feature class to identify the mains that serve the critical customers
+    main_critical_join = "Main_Critical_Join"
+    arcpy.analysis.SpatialJoin(
+        target_features=water_main_fc,
+        join_features=lats_critical_dissolve,
+        out_feature_class=main_critical_join,
+        join_operation="JOIN_ONE_TO_ONE",
+        join_type="KEEP_COMMON",
+    )
+    
+    # Turn the feature class into a dataframe
+    main_critical_df = pd.DataFrame.spatial.from_featureclass(main_critical_join)
+    
+    # Drop all columns except UniqueID
+    main_critical_df = main_critical_df[[UniqueID]]
+    
+    # Get the base name of the critical customer feature class for use as the column name
+    connection_column_name = os.path.basename(critical_customers_fc).split('.')[0]
+    # Add a column called with the name of the critical customer feature class and fill it with "Connected"
+    main_critical_df[connection_column_name] = "Connected"
+    
+    return main_critical_df
+
+main_schools_df = identify_critical_customer_connections(feature_services[3][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
+healthcare_df = identify_critical_customer_connections(feature_services[4][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
+criticalcustomer_df = identify_critical_customer_connections(feature_services[2][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
+
+# one at a time merge the critical customer dataframes with the mains_iso_df
+mains_iso_df = pd.merge(mains_iso_df, main_schools_df, left_on=UniqueID, right_on=UniqueID, how='left')
+mains_iso_df = pd.merge(mains_iso_df, healthcare_df, left_on=UniqueID, right_on=UniqueID, how='left')
+mains_iso_df = pd.merge(mains_iso_df, criticalcustomer_df, left_on=UniqueID, right_on=UniqueID, how='left')
+
+# QA Check get some matching zones replace all instances of "Zone- 30" with "Zone- 51" in column: 'zone'
+# mains_iso_df['zone'] = mains_iso_df['zone'].replace('Zone- 30', 'Zone- 51')
+
+# Function to update zones with connection status
+# df is the dataframe to update, feature_class is the feature class used to find the column name
+def update_zones_with_connection(df, feature_class):
+    # Get the base name of the feature class for use as the column name
+    column_name = os.path.basename(feature_class).split('.')[0]
+
+    # Initialize a set to store zones with "Connected" values in the specified column
+    zones = set()
+
+    # Identify zones where the specified column has "Connected" values
+    for index, row in df.iterrows():
+        if row[column_name] == "Connected":
+            zones.add(row['zone'])
+
+    # Update the specified column for rows in the same zone
+    for index, row in df.iterrows():
+        if pd.isnull(row[column_name]) and row['zone'] in zones:
+            df.loc[index, column_name] = "zone"
+
+    return df
+
+# Update zones with connection status for each critical customer feature class
+mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[2][0]) # Critical Customers
+mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[3][0]) # Schools
+mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[4][0]) # Healthcare
