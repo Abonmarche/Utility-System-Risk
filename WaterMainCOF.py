@@ -7,104 +7,28 @@ import numpy as np
 from sklearn.cluster import KMeans
 from arcgis.gis import GIS
 import yaml
-
-# sign into arcgis online with user credentials
-# Load credentials from CityLogins.yaml
-with open("../CityLogins.yaml", "r") as file:
-    config = yaml.safe_load(file)
+import math
 
 # Function to get GIS object from city name
-def get_gis(city_name):
+# city_name is the name of the city to get the GIS object for from the configuration file
+def get_gis(city_name, config_file):
+    # Load credentials from the provided configuration file
+    with open(config_file, "r") as file:
+        config = yaml.safe_load(file)
+    
+    # Retrieve the city configuration
     city_config = config['cities'][city_name]
     url = city_config['url']
     username = city_config['username']
     password = city_config['password']
+    
+    # Create GIS object
     gis = GIS(url, username, password)
     return gis
-
-# Define your User
-user = 'Abonmarche'
-
-# Connect to GIS
-user_gis = get_gis(user)
-
-# variables
-dir_path = os.getcwd()
-workspace = r"memory"
-arcpy.env.workspace = workspace
-arcpy.env.overwriteOutput = True
-arcpy.env.maintainAttachments = False
-dir_path = os.getcwd()
-
-# User Variables *keep them in this order*
-results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults"
-feature_services = [
-    ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"), #0
-    ("WaterLaterals", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/4"), #1
-    ("CriticalCustomers", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/1"), #2
-    ("SchoolChildcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/2"), #3
-    ("Healthcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/3"), #4
-    ("Roadway", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/4"), #5
-    ("Buildings", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/5"), #6
-    ("WaterLines", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/6"), #7
-    ("WaterAreas", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/7"), #8
-    ("ROW", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/8"), #9
-    ("Parcels", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/9"), #10
-    ("isozones", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_IsoZone/FeatureServer/0") #11
-]
-
-# New variable to store a list of static features to analyze
-features_to_analyze = ["Buildings", "ROW", "WaterAreas", "WaterLines"]
-
-# water main fields
-UniqueID = "FACILITYID"
-InstallDate = "PLACEDINSE"
-Material = "MATERIAL"
-Diameter = "DIAMETER"
-
-# roadway values
-RoadwayType = "Road"
-MajorRoad = "Major Road"
-MinorRoad = "Minor Road"
-MajorIntersection = "Major Intersection"
-MinorIntersection = "Minor Intersection"
-
-# Parcels fields
-ParcelUID = "PARCELID"
-
-# Export each feature service to a feature class
-for fc_name, url in feature_services:
-    arcpy.conversion.ExportFeatures(url, fc_name)
-
-# list feature classes
-# feature_classes = arcpy.ListFeatureClasses()
-# feature_classes
-
-# split the Roadway feature class by the RoadwayType field
-arcpy.analysis.SplitByAttributes(feature_services[5][0], workspace, RoadwayType)
 
 # Function to replace spaces with underscores
 def format_feature_class_name(name):
     return name.replace(" ", "_")
-
-# List of road feature classes to use in near analysis
-near_feature_classes = [
-    format_feature_class_name(MajorRoad),
-    format_feature_class_name(MajorIntersection),
-    format_feature_class_name(MinorIntersection),
-    format_feature_class_name(MinorRoad)
-]
-
-# Add other static feature classes
-near_feature_classes.extend(features_to_analyze)
-
-water_main = feature_services[0][0]
-columns = ["OBJECTID", UniqueID, InstallDate, Material, Diameter]
-# make a water main dataframe with just the columns
-water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
-# drop any column not in columns
-water_main_df = water_main_df.drop(columns=[col for col in water_main_df.columns if col not in columns])
-# water_main_df.head()
 
 # function to generate near table with distances from each main to the analysis features
 # water main is the main feature class to analyze, near_feature_classes is a list of feature classes to analyze, and results_folder is the folder path to save the results
@@ -155,17 +79,8 @@ def generate_near_table(water_main, near_feature_classes, results_folder):
 
     return Near_results_df
 
-# run the generate_near_table function and merge the water_main_df with the Near_results_df
-Near_results_df = generate_near_table(water_main, near_feature_classes, results_folder)
-# merge the water_main_df with the Near_results_df
-Near_results_df = pd.merge(water_main_df, Near_results_df, left_on='OBJECTID', right_on='IN_FID', how='left')
-# Drop the IN_FID column after the merge
-Near_results_df = Near_results_df.drop(columns=['IN_FID'])
-
-# Save the Near_results_df to a csv file using dir_path
-# Near_results_df.to_csv(os.path.join(results_folder, "NearResults.csv"), index=False)
-
-# Affected customer analysis
+# Function to analyze the affected customers
+# isolation_zones_fc is the isolation zones feature class, lateral_lines_fc is the lateral lines feature class, and results_folder is the folder path to save the results
 def affected_customer_analysis(isolation_zones_fc, lateral_lines_fc, results_folder):
     # Spatial join laterals to isozones one to many so there is a row for each lateral in the iso zone
     zones_lats_join = "zones_lats_join"
@@ -199,29 +114,6 @@ def affected_customer_analysis(isolation_zones_fc, lateral_lines_fc, results_fol
             os.remove(os.path.join(results_folder, file))
     
     return summary_df
-
-isolation_zones_fc = feature_services[-1][0]
-lateral_lines_fc = feature_services[1][0]
-summary_df = affected_customer_analysis(isolation_zones_fc, lateral_lines_fc, results_folder)
-
-# add a spatial join to the water main feature class to get the isolation zones into the water mains
-main_iso_join = "main_iso_join"
-arcpy.analysis.SpatialJoin(
-    target_features=water_main,
-    join_features=isolation_zones_fc,
-    out_feature_class=main_iso_join,
-    join_operation="JOIN_ONE_TO_ONE",
-    join_type="KEEP_ALL",
-    match_option="LARGEST_OVERLAP"
-)
-# Convert the feature class to a dataframe
-mains_iso_df = pd.DataFrame.spatial.from_featureclass(main_iso_join)
-# keep only fields zone and the unique id variable field
-mains_iso_df = mains_iso_df[[UniqueID, "zone"]]
-#  use the summary df as a key to add a column to the mains_iso_df for affected laterals and fill it with the count of laterals in the isolation zone
-mains_iso_df['affected_lats'] = mains_iso_df['zone'].map(summary_df.set_index('zone')['FREQUENCY'])
-# merge the mains_iso_df with the Near_results_df
-mains_iso_df = pd.merge(Near_results_df, mains_iso_df, left_on=UniqueID, right_on=UniqueID, how='left')
 
 # Function to identify critical customer connections
 # critical_customers_fc is the critical customers feature class, parcels_fc is the parcels feature class, laterals_fc is the laterals feature class, water_main_fc is the water main feature class, and parcel_uid_field is the field in the parcels feature class that is the unique id
@@ -290,18 +182,6 @@ def identify_critical_customer_connections(
     
     return main_critical_df
 
-main_schools_df = identify_critical_customer_connections(feature_services[3][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
-healthcare_df = identify_critical_customer_connections(feature_services[4][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
-criticalcustomer_df = identify_critical_customer_connections(feature_services[2][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
-
-# one at a time merge the critical customer dataframes with the mains_iso_df
-mains_iso_df = pd.merge(mains_iso_df, main_schools_df, left_on=UniqueID, right_on=UniqueID, how='left')
-mains_iso_df = pd.merge(mains_iso_df, healthcare_df, left_on=UniqueID, right_on=UniqueID, how='left')
-mains_iso_df = pd.merge(mains_iso_df, criticalcustomer_df, left_on=UniqueID, right_on=UniqueID, how='left')
-
-# QA Check get some matching zones replace all instances of "Zone- 30" with "Zone- 51" in column: 'zone'
-# mains_iso_df['zone'] = mains_iso_df['zone'].replace('Zone- 30', 'Zone- 51')
-
 # Function to update zones with connection status
 # df is the dataframe to update, feature_class is the feature class used to find the column name
 def update_zones_with_connection(df, feature_class):
@@ -323,7 +203,332 @@ def update_zones_with_connection(df, feature_class):
 
     return df
 
+# Function to score the diameter of the water main
+def score_diameter(diameter):
+    # Attempt to convert the diameter to a numeric value
+    try:
+        diameter = float(diameter)
+    except ValueError:
+        # If conversion fails, return a default score or handle it as you wish
+        return 0  # default score
+
+    # Apply the scoring logic
+    if diameter < 4:
+        return 1
+    elif 4 <= diameter <= 8:
+        return 4
+    elif 8 < diameter <= 16:
+        return 7
+    elif diameter >= 16:
+        return 10
+
+# Function to score the proximity to a railroad
+def score_railroad(railroad):
+    if railroad == 0:
+        return 10
+    elif 0 < railroad <= 10:
+        return 9
+    elif 10 < railroad <= 50:
+        return 7
+    elif 50 < railroad <= 100:
+        return 5
+    elif railroad > 100:
+        return 0
+
+# Function to score the proximity to a water body 
+def score_waterbodies(WaterAreas, WaterLines):
+    waterbodies = min(WaterAreas, WaterLines)
+    if waterbodies == 0:
+        return 10
+    elif 0 < waterbodies <= 10:
+        return 9
+    elif 10 < waterbodies <= 50:
+        return 7
+    elif 50 < waterbodies <= 100:
+        return 5
+    elif waterbodies > 100:
+        return 0
+
+# Function to score the proximity to a building
+def score_buildings(buildings):
+    if 0 <= buildings <= 5:
+        return 10
+    elif 5 < buildings <= 20:
+        return 5
+    elif buildings > 20:
+        return 0
+
+# Function to score the the number of affected laterals
+def score_affected_lats(affected_lats):
+    if pd.isnull(affected_lats) or affected_lats == 0:
+        return 0
+    elif affected_lats > 50:
+        return 10
+    elif 31 <= affected_lats <= 50:
+        return 8
+    elif 11 <= affected_lats <= 30:
+        return 5
+    elif 1 <= affected_lats <= 10:
+        return 1
+
+# Function to score the proximity to a school or childcare facility
+def score_school_childcare(school_childcare):
+    if school_childcare == "Connected":
+        return 10
+    elif school_childcare == "Zone":
+        return 8
+    else:
+        return 0
+
+# Function to score the proximity to a healthcare facility
+def score_medical(medical):
+    if medical == "Connected":
+        return 10
+    elif medical == "Zone":
+        return 8
+    else:
+        return 0
+
+
+# Function to score the proximity to a critical customer
+def score_critical_cust(criticalcust):
+    if criticalcust == "Connected":
+        return 10
+    elif criticalcust == "Zone":
+        return 8
+    else:
+        return 0
+
+# function to score the type of road covering the water main
+def score_roadway(row):
+    if row['Major_Intersection'] == 0:
+        return 10
+    elif row['Major_Road'] == 0:
+        return 9
+    elif row['Minor_Intersection'] == 0:
+        return 7
+    elif row['Minor_Road'] == 0:
+        return 6
+    elif row['ROW'] == 0 and row['Major_Road'] < row['Minor_Road']:
+        return 3
+    elif row['ROW'] == 0 and row['Major_Road'] >= row['Minor_Road']:
+        return 2
+    else:
+        return 0
+
+def calculate_final_scores(df):
+    # Define weights for each score
+    weights = {
+        'DIAMETER_score': 0.1,
+        'Railroad_score': 0.1,
+        'Roadway_score': 0.15,
+        'Buildings_score': 0.1,
+        'affected_lats_score': 0.2,
+        'WaterBodies_score': 0.2,
+        'medical_score': 0.05,
+        'school_childcare_score': 0.05,
+        'critical_cust_score': 0.05
+    }
+
+    # Identify available columns in the DataFrame
+    available_columns = [col for col in weights if col in df.columns]
+
+    # Calculate total weight of available columns
+    total_weight = sum(weights[col] for col in available_columns)
+
+    # Normalize weights of available columns to sum to 1
+    normalized_weights = {col: weights[col] / total_weight for col in available_columns}
+
+    # Function to calculate the final score for a single row
+    def calculate_final_score(row):
+        # Calculate the final weighted score using only available columns
+        final_score = sum(row[col] * normalized_weights[col] for col in available_columns)
+        # Scale the final score to be out of 10
+        return math.ceil(final_score)
+
+    # Apply the calculate_final_score function to each row in the DataFrame
+    df['COF'] = df.apply(calculate_final_score, axis=1)
+
+    return df
+
+# system variables
+dir_path = os.getcwd()
+workspace = r"memory"
+arcpy.env.workspace = workspace
+arcpy.env.overwriteOutput = True
+arcpy.env.maintainAttachments = False
+dir_path = os.getcwd()
+
+# User Variables
+# Define config file and GIS user
+config_file = "../CityLogins.yaml"
+user = 'Abonmarche'
+
+results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults"
+# *keep feature_services in this order*
+feature_services = [
+    ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"), #0
+    ("WaterLaterals", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/4"), #1
+    ("CriticalCustomers", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/1"), #2
+    ("SchoolChildcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/2"), #3
+    ("Healthcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/3"), #4
+    ("Roadway", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/4"), #5
+    ("Buildings", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/5"), #6
+    ("WaterLines", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/6"), #7
+    ("WaterAreas", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/7"), #8
+    ("ROW", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/8"), #9
+    ("Parcels", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/9"), #10
+    ("isozones", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_IsoZone/FeatureServer/0") #11
+]
+
+# New variable to store a list of static features to analyze
+features_to_analyze = ["Buildings", "ROW", "WaterAreas", "WaterLines"]
+
+# water main fields
+UniqueID = "FACILITYID"
+InstallDate = "PLACEDINSE"
+Material = "MATERIAL"
+Diameter = "DIAMETER"
+
+# roadway values
+RoadwayType = "Road"
+MajorRoad = "Major Road"
+MinorRoad = "Minor Road"
+MajorIntersection = "Major Intersection"
+MinorIntersection = "Minor Intersection"
+
+# Parcels fields
+ParcelUID = "PARCELID"
+
+# Connect to GIS
+user_gis = get_gis(user, config_file)
+
+# Export each feature service to a feature class
+for fc_name, url in feature_services:
+    arcpy.conversion.ExportFeatures(url, fc_name)
+
+# list feature classes
+# feature_classes = arcpy.ListFeatureClasses()
+# feature_classes
+
+# split the Roadway feature class by the RoadwayType field
+arcpy.analysis.SplitByAttributes(feature_services[5][0], workspace, RoadwayType)
+
+# List of road feature classes to use in near analysis
+near_feature_classes = [
+    format_feature_class_name(MajorRoad),
+    format_feature_class_name(MajorIntersection),
+    format_feature_class_name(MinorIntersection),
+    format_feature_class_name(MinorRoad)
+]
+
+# Add other static feature classes
+near_feature_classes.extend(features_to_analyze)
+
+water_main = feature_services[0][0]
+columns = ["OBJECTID", UniqueID, InstallDate, Material, Diameter]
+# make a water main dataframe with just the columns
+water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
+# drop any column not in columns
+water_main_df = water_main_df.drop(columns=[col for col in water_main_df.columns if col not in columns])
+# water_main_df.head()
+
+# run the generate_near_table function and merge the water_main_df with the Near_results_df
+Near_results_df = generate_near_table(water_main, near_feature_classes, results_folder)
+# merge the water_main_df with the Near_results_df
+Near_results_df = pd.merge(water_main_df, Near_results_df, left_on='OBJECTID', right_on='IN_FID', how='left')
+# Drop the IN_FID column after the merge
+Near_results_df = Near_results_df.drop(columns=['IN_FID'])
+
+# Save the Near_results_df to a csv file using dir_path
+# Near_results_df.to_csv(os.path.join(results_folder, "NearResults.csv"), index=False)
+
+isolation_zones_fc = feature_services[-1][0]
+lateral_lines_fc = feature_services[1][0]
+summary_df = affected_customer_analysis(isolation_zones_fc, lateral_lines_fc, results_folder)
+
+# add a spatial join to the water main feature class to get the isolation zones into the water mains
+main_iso_join = "main_iso_join"
+arcpy.analysis.SpatialJoin(
+    target_features=water_main,
+    join_features=isolation_zones_fc,
+    out_feature_class=main_iso_join,
+    join_operation="JOIN_ONE_TO_ONE",
+    join_type="KEEP_ALL",
+    match_option="LARGEST_OVERLAP"
+)
+# Convert the feature class to a dataframe
+mains_iso_df = pd.DataFrame.spatial.from_featureclass(main_iso_join)
+# keep only fields zone and the unique id variable field
+mains_iso_df = mains_iso_df[[UniqueID, "zone"]]
+#  use the summary df as a key to add a column to the mains_iso_df for affected laterals and fill it with the count of laterals in the isolation zone
+mains_iso_df['affected_lats'] = mains_iso_df['zone'].map(summary_df.set_index('zone')['FREQUENCY'])
+# merge the mains_iso_df with the Near_results_df
+mains_iso_df = pd.merge(Near_results_df, mains_iso_df, left_on=UniqueID, right_on=UniqueID, how='left')
+
+main_schools_df = identify_critical_customer_connections(feature_services[3][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
+healthcare_df = identify_critical_customer_connections(feature_services[4][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
+criticalcustomer_df = identify_critical_customer_connections(feature_services[2][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
+
+# one at a time merge the critical customer dataframes with the mains_iso_df
+mains_iso_df = pd.merge(mains_iso_df, main_schools_df, left_on=UniqueID, right_on=UniqueID, how='left')
+mains_iso_df = pd.merge(mains_iso_df, healthcare_df, left_on=UniqueID, right_on=UniqueID, how='left')
+mains_iso_df = pd.merge(mains_iso_df, criticalcustomer_df, left_on=UniqueID, right_on=UniqueID, how='left')
+
+# QA Check get some matching zones replace all instances of "Zone- 30" with "Zone- 51" in column: 'zone'
+# mains_iso_df['zone'] = mains_iso_df['zone'].replace('Zone- 30', 'Zone- 51')
+
 # Update zones with connection status for each critical customer feature class
 mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[2][0]) # Critical Customers
 mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[3][0]) # Schools
 mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[4][0]) # Healthcare
+
+# Score assignment
+# Check and apply scoring for Diameter
+if Diameter in mains_iso_df.columns:
+    mains_iso_df['DIAMETER_score'] = mains_iso_df[Diameter].apply(score_diameter)
+
+# Check and apply scoring for Railroad if 'Railroad' column exists
+if 'Railroad' in mains_iso_df.columns:
+    mains_iso_df['Railroad_score'] = mains_iso_df['Railroad'].apply(score_railroad)
+
+# Check and apply scoring for Buildings if 'Buildings' column exists
+if 'Buildings' in mains_iso_df.columns:
+    mains_iso_df['Buildings_score'] = mains_iso_df['Buildings'].apply(score_buildings)
+
+# Check and apply scoring for Water Bodies if 'WaterAreas' and 'WaterLines' columns exist
+if 'WaterAreas' in mains_iso_df.columns and 'WaterLines' in mains_iso_df.columns:
+    mains_iso_df['WaterBodies_score'] = mains_iso_df.apply(lambda row: score_waterbodies(row['WaterAreas'], row['WaterLines']), axis=1)
+
+# Check and apply scoring for Affected Laterals if 'affected_lats' column exists
+if 'affected_lats' in mains_iso_df.columns:
+    mains_iso_df['affected_lats_score'] = mains_iso_df['affected_lats'].apply(score_affected_lats)
+
+# Check and apply scoring for School/Childcare if 'SchoolChildcare' column exists
+school_column = os.path.basename(feature_services[3][0]).split('.')[0]
+if school_column in mains_iso_df.columns:
+    mains_iso_df['school_childcare_score'] = mains_iso_df[school_column].apply(score_school_childcare)
+
+# Check and apply scoring for Healthcare if 'Healthcare' column exists
+healthcare_column = os.path.basename(feature_services[4][0]).split('.')[0]
+if healthcare_column in mains_iso_df.columns:
+    mains_iso_df['medical_score'] = mains_iso_df[healthcare_column].apply(score_medical)
+
+# Check and apply scoring for Critical Customers if 'CriticalCustomers' column exists
+critical_customer_column = os.path.basename(feature_services[2][0]).split('.')[0]
+if critical_customer_column in mains_iso_df.columns:
+    mains_iso_df['critical_cust_score'] = mains_iso_df[critical_customer_column].apply(score_critical_cust)
+
+# Check and apply scoring for Roadway if necessary columns exist
+required_roadway_columns = {'Major_Intersection', 'Major_Road', 'Minor_Intersection', 'Minor_Road', 'ROW'}
+if required_roadway_columns.issubset(mains_iso_df.columns):
+    mains_iso_df['Roadway_score'] = mains_iso_df.apply(score_roadway, axis=1)
+
+# Calculate final scores
+mains_iso_df = calculate_final_scores(mains_iso_df)
+
+# Save the final results to a csv file in the results folder
+mains_iso_df.to_csv(os.path.join(results_folder, "Final_COF.csv"), index=False)
+
+# Clean up
+arcpy.management.Delete(workspace)
