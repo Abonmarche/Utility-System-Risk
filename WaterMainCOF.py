@@ -316,7 +316,7 @@ def score_roadway(row):
     else:
         return 0
 
-def calculate_final_scores(df):
+def calculate_final_scores(df, results_folder):
     # Define weights for each score
     weights = {
         'DIAMETER_score': 0.1,
@@ -338,6 +338,10 @@ def calculate_final_scores(df):
 
     # Normalize weights of available columns to sum to 1
     normalized_weights = {col: weights[col] / total_weight for col in available_columns}
+
+    # Save normalized weights to a CSV file
+    normalized_weights_df = pd.DataFrame(list(normalized_weights.items()), columns=['Column', 'Normalized_Weight'])
+    normalized_weights_df.to_csv(os.path.join(results_folder, 'normalized_weights.csv'), index=False)
 
     # Function to calculate the final score for a single row
     def calculate_final_score(row):
@@ -403,6 +407,7 @@ ParcelUID = "PARCELID"
 # Connect to GIS
 user_gis = get_gis(user, config_file)
 
+# Begin Analysis
 # Export each feature service to a feature class
 for fc_name, url in feature_services:
     arcpy.conversion.ExportFeatures(url, fc_name)
@@ -525,7 +530,7 @@ if required_roadway_columns.issubset(mains_iso_df.columns):
     mains_iso_df['Roadway_score'] = mains_iso_df.apply(score_roadway, axis=1)
 
 # Calculate final scores
-mains_iso_df = calculate_final_scores(mains_iso_df)
+mains_iso_df = calculate_final_scores(mains_iso_df, results_folder)
 
 # Save the final results to a csv file in the results folder
 mains_iso_df.to_csv(os.path.join(results_folder, "Final_COF.csv"), index=False)
