@@ -68,6 +68,7 @@ def create_heatmap(df: pd.DataFrame, lof_column: str, cof_column: str, length_co
 # File paths for the COF and LOF CSV files
 cof_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\Final_COF.csv"
 lof_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\Final_LOF.csv"
+risk_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\Final_Risk.csv"
 unique_id = 'FACILITYID'
 length_column = 'LENGTH'
 image_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\heatmap.html"
@@ -91,3 +92,6 @@ plot = create_heatmap(risk_df, 'LOF_normalized', 'COF_normalized', length_column
 
 # Save the heatmap as an image file
 plot.write_html(image_path)
+
+# save the risk_df as a csv
+risk_df.to_csv(risk_file_path, index=False)
