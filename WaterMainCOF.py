@@ -431,11 +431,21 @@ near_feature_classes = [
 near_feature_classes.extend(features_to_analyze)
 
 water_main = feature_services[0][0]
-columns = ["OBJECTID", UniqueID, InstallDate, Material, Diameter]
+
+# calculate a new field for the length of the water main
+arcpy.management.CalculateGeometryAttributes(
+    in_features=water_main,
+    geometry_property=[["LENGTH", "LENGTH_GEODESIC"]],
+    length_unit="FEET_INT"
+)
+columns = ["OBJECTID", UniqueID, InstallDate, Material, Diameter, 'LENGTH']
 # make a water main dataframe with just the columns
 water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
 # drop any column not in columns
 water_main_df = water_main_df.drop(columns=[col for col in water_main_df.columns if col not in columns])
+# make Length a number column and round the length to 0 decimal places
+water_main_df['LENGTH'] = water_main_df['LENGTH'].astype(float)
+water_main_df['LENGTH'] = water_main_df['LENGTH'].round(0)
 # water_main_df.head()
 
 # run the generate_near_table function and merge the water_main_df with the Near_results_df
