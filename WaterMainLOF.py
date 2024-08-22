@@ -30,7 +30,7 @@ user_gis = get_gis(user)
 
 # User Variables
 workspace = r"memory"
-results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults"
+results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults"
 service_life_table = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganServiceLife.csv"
 water_main_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"
 breaks_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/5"
@@ -50,7 +50,7 @@ arcpy.conversion.ExportFeatures(water_main_url, "WaterMainFC")
 arcpy.conversion.ExportFeatures(breaks_url, "BreaksFC")
 
 water_main = "WaterMainFC"
-breaks = "BreaksFC"
+# breaks = "BreaksFC"
 columns = [UniqueID, InstallDate, Material]
 
 # Water main feature class to pandas dataframe
@@ -91,62 +91,71 @@ WM_sl_Calc_df.loc[WM_sl_Calc_df['Service Life Score'] <= 0, 'Service Life Score'
 # output_path = os.path.join(results_folder, "Service_Life.csv")
 # WM_sl_Calc_df.to_csv(output_path, index=False)
 
-# spatial join water mains to breaks to get the pipe FacilityID into the breaks table
-if breaks and breaks != "":
-    breaks_mains_join = "breaks_mains_join"
-    arcpy.analysis.SpatialJoin(
-        target_features=breaks,
-        join_features=water_main,
-        out_feature_class=breaks_mains_join,
-        join_operation="JOIN_ONE_TO_ONE",
-        join_type="KEEP_COMMON",
-        match_option="INTERSECT"
-    )
+try:
+    # spatial join water mains to breaks to get the pipe FacilityID into the breaks table
+    if breaks and breaks != "":
+        breaks_mains_join = "breaks_mains_join"
+        arcpy.analysis.SpatialJoin(
+            target_features=breaks,
+            join_features=water_main,
+            out_feature_class=breaks_mains_join,
+            join_operation="JOIN_ONE_TO_ONE",
+            join_type="KEEP_COMMON",
+            match_option="INTERSECT"
+        )
 
-    # check the number of features in the spatial join result
-    result_count = arcpy.management.GetCount(breaks_mains_join)
-    if int(result_count.getOutput(0)) > 0:
-        # convert the spatial join result to a pandas dataframe
-        breaks_mains_join_df = pd.DataFrame.spatial.from_featureclass(breaks_mains_join)
-        breaks_mains_join_df = breaks_mains_join_df[['OBJECTID', 'Join_Count', UniqueID]]
-        breaks_mains_join_df = breaks_mains_join_df.dropna()
+        # check the number of features in the spatial join result
+        result_count = arcpy.management.GetCount(breaks_mains_join)
+        if int(result_count.getOutput(0)) > 0:
+            # convert the spatial join result to a pandas dataframe
+            breaks_mains_join_df = pd.DataFrame.spatial.from_featureclass(breaks_mains_join)
+            breaks_mains_join_df = breaks_mains_join_df[['OBJECTID', 'Join_Count', UniqueID]]
+            breaks_mains_join_df = breaks_mains_join_df.dropna()
 
-        # make a datafreame from the mains and only keep facilityid, and drop rows with null values
-        water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
-        water_main_df = water_main_df[[UniqueID]]
-        water_main_df = water_main_df.dropna()
+            # make a dataframe from the mains and only keep facilityid, and drop rows with null values
+            water_main_df = pd.DataFrame.spatial.from_featureclass(water_main)
+            water_main_df = water_main_df[[UniqueID]]
+            water_main_df = water_main_df.dropna()
 
-        # use the breaks dataframe to get the count of breaks for each pipe and add it to the water main dataframe in a Breaks column
-        # Group the breaks_mains_join_df by UniqueID and count the number of breaks for each UniqueID
-        breaks_count = breaks_mains_join_df.groupby(UniqueID).size().reset_index(name='Breaks')
+            # Ensure UniqueID columns are of the same type
+            breaks_mains_join_df[UniqueID] = breaks_mains_join_df[UniqueID].astype(str)
+            water_main_df[UniqueID] = water_main_df[UniqueID].astype(str)
+            WM_sl_Calc_df[UniqueID] = WM_sl_Calc_df[UniqueID].astype(str)
 
-        # Merge the water_main_df with the breaks_count dataframe on UniqueID
-        breaks_df = pd.merge(water_main_df, breaks_count, on=UniqueID, how='left')
+            # use the breaks dataframe to get the count of breaks for each pipe and add it to the water main dataframe in a Breaks column
+            # Group the breaks_mains_join_df by UniqueID and count the number of breaks for each UniqueID
+            breaks_count = breaks_mains_join_df.groupby(UniqueID).size().reset_index(name='Breaks')
 
-        # Fill NaN values in the 'Breaks' column with 0
-        breaks_df['Breaks'] = breaks_df['Breaks'].fillna(0)
-        # remove rows where Breaks is 0
-        breaks_df = breaks_df[breaks_df['Breaks'] > 0]
+            # Merge the water_main_df with the breaks_count dataframe on UniqueID
+            breaks_df = pd.merge(water_main_df, breaks_count, on=UniqueID, how='left')
 
-        # score the breaks
-        def score_breaks(breaks):
-            if breaks == 1:
-                return 8
-            elif breaks >= 2:
-                return 10
+            # Fill NaN values in the 'Breaks' column with 0
+            breaks_df['Breaks'] = breaks_df['Breaks'].fillna(0)
+            # remove rows where Breaks is 0
+            breaks_df = breaks_df[breaks_df['Breaks'] > 0]
 
-        # Apply the function to the 'Breaks' column to calculate the 'Breaks_score'
-        breaks_df['Breaks_score'] = breaks_df['Breaks'].apply(score_breaks)
-        # save to csv
-        output_path = os.path.join(results_folder, "Breaks.csv")
-        breaks_df.to_csv(output_path, index=False)
+            # score the breaks
+            def score_breaks(breaks):
+                if breaks == 1:
+                    return 8
+                elif breaks >= 2:
+                    return 10
 
-        # Merge the dataframes on UniqueID
-        LOF_df = pd.merge(WM_sl_Calc_df, breaks_df, on=UniqueID, how='left')
+            # Apply the function to the 'Breaks' column to calculate the 'Breaks_score'
+            breaks_df['Breaks_score'] = breaks_df['Breaks'].apply(score_breaks)
+            # save to csv
+            output_path = os.path.join(results_folder, "Breaks.csv")
+            breaks_df.to_csv(output_path, index=False)
 
-    else:
-        print("No features in the spatial join result")
-        LOF_df = WM_sl_Calc_df.copy()
+            # Merge the dataframes on UniqueID
+            LOF_df = pd.merge(WM_sl_Calc_df, breaks_df, on=UniqueID, how='left')
+
+        else:
+            print("No features in the spatial join result")
+            LOF_df = WM_sl_Calc_df.copy()
+except NameError:
+    print("Variable 'breaks' is not defined")
+    LOF_df = WM_sl_Calc_df.copy()
 
 # drop missing values again
 LOF_df= LOF_df.dropna()

@@ -66,12 +66,12 @@ def create_heatmap(df: pd.DataFrame, lof_column: str, cof_column: str, length_co
     return fig
 
 # File paths for the COF and LOF CSV files
-cof_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\Final_COF.csv"
-lof_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\Final_LOF.csv"
-risk_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\Final_Risk.csv"
+cof_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults\Final_COF.csv"
+lof_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults\Final_LOF.csv"
+risk_file_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults\Final_Risk.csv"
 unique_id = 'FACILITYID'
 length_column = 'LENGTH'
-image_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults\heatmap.html"
+image_path = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults\heatmap.html"
 
 # make dfs from csv files
 cof_df = pd.read_csv(cof_file_path)

@@ -9,9 +9,14 @@ from arcgis.gis import GIS
 import yaml
 import math
 
-# Function to get GIS object from city name
-# city_name is the name of the city to get the GIS object for from the configuration file
-def get_gis(city_name, config_file):
+def get_gis(city_name: str, config_file: str) -> GIS:
+    """
+    Function to get GIS object from city name
+
+    :param city_name: str: Name of the city to get the GIS object for
+    :param config_file: str: Path to the configuration file containing the credentials
+    :return: GIS: GIS object for the specified city
+    """
     # Load credentials from the provided configuration file
     with open(config_file, "r") as file:
         config = yaml.safe_load(file)
@@ -26,8 +31,13 @@ def get_gis(city_name, config_file):
     gis = GIS(url, username, password)
     return gis
 
-# Function to replace spaces with underscores
-def format_feature_class_name(name):
+def format_feature_class_name(name: str) -> str:
+    """
+    Replaces spaces with underscores in a feature class name
+
+    :param name: str: Name of the feature class
+    :return: str: Formatted feature class name
+    """
     return name.replace(" ", "_")
 
 # function to generate near table with distances from each main to the analysis features
@@ -212,7 +222,7 @@ def score_diameter(diameter):
         # If conversion fails, return a default score or handle it as you wish
         return 0  # default score
 
-    # Apply the scoring logic
+    # Apply the scoring
     if diameter < 4:
         return 1
     elif 4 <= diameter <= 8:
@@ -358,9 +368,11 @@ def calculate_final_scores(df, results_folder):
 # system variables
 dir_path = os.getcwd()
 workspace = r"memory"
+coordinate_system = arcpy.SpatialReference(102690)
 arcpy.env.workspace = workspace
 arcpy.env.overwriteOutput = True
 arcpy.env.maintainAttachments = False
+arcpy.env.outputCoordinateSystem = coordinate_system
 dir_path = os.getcwd()
 
 # User Variables
@@ -368,7 +380,7 @@ dir_path = os.getcwd()
 config_file = "../CityLogins.yaml"
 user = 'Abonmarche'
 
-results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganResults"
+results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults"
 # *keep feature_services in this order*
 feature_services = [
     ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"), #0
@@ -413,8 +425,8 @@ for fc_name, url in feature_services:
     arcpy.conversion.ExportFeatures(url, fc_name)
 
 # list feature classes
-# feature_classes = arcpy.ListFeatureClasses()
-# feature_classes
+feature_classes = arcpy.ListFeatureClasses()
+feature_classes
 
 # split the Roadway feature class by the RoadwayType field
 arcpy.analysis.SplitByAttributes(feature_services[5][0], workspace, RoadwayType)
@@ -456,7 +468,7 @@ Near_results_df = pd.merge(water_main_df, Near_results_df, left_on='OBJECTID', r
 Near_results_df = Near_results_df.drop(columns=['IN_FID'])
 
 # Save the Near_results_df to a csv file using dir_path
-# Near_results_df.to_csv(os.path.join(results_folder, "NearResults.csv"), index=False)
+Near_results_df.to_csv(os.path.join(results_folder, "NearResults.csv"), index=False)
 
 isolation_zones_fc = feature_services[-1][0]
 lateral_lines_fc = feature_services[1][0]
