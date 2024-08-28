@@ -378,27 +378,28 @@ dir_path = os.getcwd()
 # User Variables
 # Define config file and GIS user
 config_file = "../CityLogins.yaml"
-user = 'Abonmarche'
+user = 'Decatur'
 
-results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults"
+results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\DecaturResults"
 # *keep feature_services in this order*
 feature_services = [
-    ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"), #0
-    ("WaterLaterals", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/4"), #1
-    ("CriticalCustomers", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/1"), #2
-    ("SchoolChildcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/2"), #3
-    ("Healthcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/3"), #4
-    ("Roadway", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/4"), #5
-    ("Buildings", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/5"), #6
-    ("WaterLines", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/6"), #7
-    ("WaterAreas", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/7"), #8
-    ("ROW", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/8"), #9
-    ("Parcels", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/9"), #10
-    ("isozones", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_IsoZone/FeatureServer/0") #11
+    ("WaterMain", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Water_Distribution_System/FeatureServer/12"), #0
+    ("WaterLaterals", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Water_Distribution_System/FeatureServer/13"), #1
+    ("CriticalCustomers", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/3"), #2
+    ("SchoolChildcare", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/1"), #3
+    ("Healthcare", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/2"), #4
+    ("Roadway", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/6"), #5
+    ("Buildings", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/10"), #6
+    ("WaterLines", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/4"), #7
+    ("WaterAreas", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/7"), #8
+    ("ROW", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/8"), #9
+    ("Parcels", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/9"), #10
+    ("isozones", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/IsoZone/FeatureServer/0"), #11
+    ("Railroad", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/5") #12
 ]
 
 # New variable to store a list of static features to analyze
-features_to_analyze = ["Buildings", "ROW", "WaterAreas", "WaterLines"]
+features_to_analyze = ["Buildings", "Railroad", "ROW", "WaterAreas", "WaterLines"]
 
 # water main fields
 UniqueID = "FACILITYID"
@@ -414,7 +415,7 @@ MajorIntersection = "Major Intersection"
 MinorIntersection = "Minor Intersection"
 
 # Parcels fields
-ParcelUID = "PARCELID"
+ParcelUID = "FinalPIN"
 
 # Connect to GIS
 user_gis = get_gis(user, config_file)
@@ -470,7 +471,7 @@ Near_results_df = Near_results_df.drop(columns=['IN_FID'])
 # Save the Near_results_df to a csv file using dir_path
 Near_results_df.to_csv(os.path.join(results_folder, "NearResults.csv"), index=False)
 
-isolation_zones_fc = feature_services[-1][0]
+isolation_zones_fc = feature_services[-2][0]
 lateral_lines_fc = feature_services[1][0]
 summary_df = affected_customer_analysis(isolation_zones_fc, lateral_lines_fc, results_folder)
 
@@ -509,6 +510,9 @@ mains_iso_df = pd.merge(mains_iso_df, criticalcustomer_df, left_on=UniqueID, rig
 mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[2][0]) # Critical Customers
 mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[3][0]) # Schools
 mains_iso_df = update_zones_with_connection(mains_iso_df, feature_services[4][0]) # Healthcare
+
+# if Length is missing drop the row
+mains_iso_df = mains_iso_df.dropna(subset=['LENGTH'])
 
 # Score assignment
 # Check and apply scoring for Diameter

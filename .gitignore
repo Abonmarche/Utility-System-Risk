@@ -2,3 +2,6 @@
 *.yaml
 *.csv
 AlleganResults/
+AlleganSecondResults/
+DecaturResults/
+DecaturSecondResults/

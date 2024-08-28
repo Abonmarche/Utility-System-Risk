@@ -1,10 +1,10 @@
 import arcpy
 
 # Set the workspace - change this to your actual workspace
-arcpy.env.workspace = r"Place Feature Database Path Here"
-trace_network = r"Place Trace Network Path Here"
-water_mains_fc = "Place Water Main Layer Name Here"
-water_valves_fc = "Place Water Valve Layer Name Here"
+arcpy.env.workspace = r"C:\Users\ggarcia\OneDrive - Abonmarche\GIS Projects\2023\23-0789 Decatur DWAM\ArcGIS Pro\23-0789 Decatur DWAM\DecaturNetwork.gdb"
+trace_network = r"C:\Users\ggarcia\OneDrive - Abonmarche\GIS Projects\2023\23-0789 Decatur DWAM\ArcGIS Pro\23-0789 Decatur DWAM\DecaturNetwork.gdb\Water\Water"
+water_mains_fc = "Mains"
+water_valves_fc = "Valves"
 
 #This function will create individual in memory points in the center of each of the features
 #Inputs: The feature line (An individual feature), The point name or objectid for the point

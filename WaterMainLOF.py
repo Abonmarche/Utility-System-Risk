@@ -22,35 +22,105 @@ def get_gis(city_name):
     gis = GIS(url, username, password)
     return gis
 
+def classify_kmeans(values, num_bins):
+    values = values.values.reshape(-1, 1)  # Reshape for the KMeans function
+    kmeans = KMeans(n_clusters=num_bins, random_state=0).fit(values)
+    
+    # Get the cluster assignments and cluster centers
+    labels = kmeans.labels_
+    centers = kmeans.cluster_centers_
+
+    # Get the sorted order of the cluster centers
+    ordered_centers = np.argsort(centers, axis=0)
+
+    # Create a mapping from old labels to new labels
+    label_map = {old_label: new_label for new_label, old_label in enumerate(ordered_centers.flatten())}
+
+    # Map the old labels to the new labels
+    bins = np.vectorize(label_map.get)(labels)
+
+    return bins
+
+def calculate_break_density(fc, breaks, results_folder, uniqueid):
+    """
+    Calculate the break density for a given feature class and breaks feature class
+
+    :param fc: The feature class to calculate break density for
+    :param breaks: The breaks feature class
+    :param results_folder: The folder to save the density raster
+    :param uniqueid: The unique identifier field
+    :return: A pandas dataframe with the break density score for each feature in the feature class
+    """
+    # select breaks that intersect with the main
+    arcpy.management.SelectLayerByLocation(in_layer=breaks, overlap_type="INTERSECT", select_features=fc)
+    
+    # kernel density of the selected breaks
+    density = arcpy.sa.KernelDensity(
+        in_features=breaks,
+        population_field="NONE",
+        cell_size=37.1596514022946,
+        area_unit_scale_factor="SQUARE_MILES",
+        out_cell_values="DENSITIES",
+        method="PLANAR",
+        in_barriers=None
+    )
+    
+    # save the density raster
+    density_raster = f"{fc}_density_raster.tif"
+    density_raster_path = os.path.join(results_folder, density_raster)
+    density.save(density_raster_path)
+
+    # add surface info to the main feature class
+    arcpy.ddd.AddSurfaceInformation(
+        in_feature_class=fc,
+        in_surface=density_raster_path,
+        out_property="Z_MAX",
+        method="BILINEAR"
+    )
+
+    # make a dataframe from the feature class with only uniqueid and Z_MAX
+    fc_df = pd.DataFrame.spatial.from_featureclass(fc, fields=[uniqueid, 'Z_MAX'])
+    fc_df = fc_df.drop(columns='SHAPE')
+    
+    # if z_max is null, set it to 0
+    fc_df['Z_MAX'] = fc_df['Z_MAX'].fillna(0)
+
+    # classify the Z_MAX values into 11 bins
+    fc_df['Break Density Score'] = classify_kmeans(fc_df['Z_MAX'], 11)
+    
+    return fc_df
+
 # Define your User
-user = 'Abonmarche'
+user = 'Decatur'
 
 # Connect to GIS
 user_gis = get_gis(user)
 
 # User Variables
 workspace = r"memory"
-results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganSecondResults"
-service_life_table = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganServiceLife.csv"
-water_main_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"
-breaks_url = "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/5"
+results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\DecaturResults"
+service_life_table = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\DecaturServiceLife.csv"
+water_main_url = "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Water_Distribution_System/FeatureServer/12"
+breaks_url = "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/wMainBreaks/FeatureServer/0"
 UniqueID = "FACILITYID"
-InstallDate = "PLACEDINSE"
+InstallDate = "INSTALLDATE"
 Material = "MATERIAL"
 
 arcpy.env.workspace = workspace
 arcpy.env.overwriteOutput = True
 arcpy.env.maintainAttachments = False
+coordinate_system = arcpy.SpatialReference(102690)
+arcpy.env.outputCoordinateSystem = coordinate_system
 dir_path = os.getcwd()
 
-# export the water main feature service to a feature class
-arcpy.conversion.ExportFeatures(water_main_url, "WaterMainFC")
+# export the water main feature service to a feature class where facilityID install date and material are not null
+arcpy.conversion.ExportFeatures(water_main_url, "WaterMainFC", where_clause=f"{UniqueID} IS NOT NULL AND {InstallDate} IS NOT NULL AND {Material} IS NOT NULL")
 
 # export the breaks feature service to a feature class
 arcpy.conversion.ExportFeatures(breaks_url, "BreaksFC")
 
 water_main = "WaterMainFC"
-# breaks = "BreaksFC"
+breaks = "BreaksFC"
 columns = [UniqueID, InstallDate, Material]
 
 # Water main feature class to pandas dataframe
@@ -149,6 +219,8 @@ try:
 
             # Merge the dataframes on UniqueID
             LOF_df = pd.merge(WM_sl_Calc_df, breaks_df, on=UniqueID, how='left')
+            # Fill NaN values in the 'Breaks_score' column with 0
+            LOF_df['Breaks_score'] = LOF_df['Breaks_score'].fillna(0)
 
         else:
             print("No features in the spatial join result")
@@ -157,14 +229,50 @@ except NameError:
     print("Variable 'breaks' is not defined")
     LOF_df = WM_sl_Calc_df.copy()
 
+# Break Density Scoring
+# make feature classes for CAS and DIP mains
+arcpy.conversion.ExportFeatures(in_features=water_main, out_features="mains_CAS", where_clause=f"{Material} = 'CAS'")
+arcpy.conversion.ExportFeatures(in_features=water_main, out_features="mains_DIP", where_clause=f"{Material} = 'DIP'")
+# make a list of the feature classes
+break_mains_fcs = ["mains_CAS", "mains_DIP"]
+# for each feature class, calculate the break density, and merge the results into one dataframe
+dfs = []
+for fc in break_mains_fcs:
+    df = calculate_break_density(fc, breaks, results_folder, UniqueID)
+    dfs.append(df)
+# concatenate the dataframes
+break_density_df = pd.concat(dfs)
+# merge the break density dataframe with the LOF dataframe
+LOF_df = pd.merge(LOF_df, break_density_df, on=UniqueID, how='left')
+# fill in missing break density scores with 0
+LOF_df['Break Density Score'] = LOF_df['Break Density Score'].fillna(0)
+
 # drop missing values again
-LOF_df= LOF_df.dropna()
+# LOF_df= LOF_df.dropna()
+# calculate LOF based of availible fields and make a csv of scores and weights used
+# calculate the LOF as (Service Life Score x 0.50) + (Break Density Score x 0.25) + (Breaks Score x 0.25) if Break Density Score column exists
+if 'Break Density Score' in LOF_df.columns:
+    LOF_df.loc[:, 'LOF'] = (LOF_df['Service Life Score'] * 0.5) + (LOF_df['Break Density Score'] * 0.25) + (LOF_df['Breaks_score'] * 0.25)
+    scores = [0.5, 0.25, 0.25]
+    weights = ['Service Life Score', 'Break Density Score', 'Breaks_score']
+    score_weights = pd.DataFrame({'Score': scores, 'Weight': weights})
+    output_path = os.path.join(results_folder, "LOF_Score_Weights.csv")
 # calculate the LOF as (Service Life Score x 0.50) + (Breaks Score x 0.50) if Breaks_score column exists
-if 'Breaks_score' in LOF_df.columns:
+elif 'Breaks_score' in LOF_df.columns:
     LOF_df.loc[:, 'LOF'] = (LOF_df['Service Life Score'] * 0.5) + (LOF_df['Breaks_score'] * 0.5)
+    scores = [0.5, 0.5]
+    weights = ['Service Life Score', 'Breaks_score']
+    score_weights = pd.DataFrame({'Score': scores, 'Weight': weights})
+    output_path = os.path.join(results_folder, "LOF_Score_Weights.csv")
 else:
     LOF_df.loc[:, 'LOF'] = LOF_df['Service Life Score']
+    scores = [1]
+    weights = ['Service Life Score']
+    score_weights = pd.DataFrame({'Score': scores, 'Weight': weights})
+    output_path = os.path.join(results_folder, "LOF_Score_Weights.csv")
 LOF_df.loc[:, 'LOF'] = np.ceil(LOF_df['LOF'])
+# save the score weights to a csv
+score_weights.to_csv(output_path, index=False)
 
 # Save the final dataframe to a csv file
 output_path = os.path.join(results_folder, "Final_LOF.csv")
