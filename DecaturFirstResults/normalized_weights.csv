@@ -1,0 +1,10 @@
+Column,Normalized_Weight
+DIAMETER_score,0.1
+Railroad_score,0.1
+Roadway_score,0.15
+Buildings_score,0.1
+affected_lats_score,0.2
+WaterBodies_score,0.2
+medical_score,0.05
+school_childcare_score,0.05
+critical_cust_score,0.05

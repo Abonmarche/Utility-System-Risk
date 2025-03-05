@@ -1,7 +1,8 @@
 *.code-workspace
 *.yaml
-*.csv
-AlleganResults/
-AlleganSecondResults/
-DecaturResults/
-DecaturSecondResults/
+# *.csv
+# AlleganResults/
+# AlleganSecondResults/
+# DecaturResults/
+# DecaturFirstResults/
+# DecaturSecondResults/

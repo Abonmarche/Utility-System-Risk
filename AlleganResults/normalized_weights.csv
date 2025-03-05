@@ -1,0 +1,9 @@
+Column,Normalized_Weight
+DIAMETER_score,0.1111111111111111
+Roadway_score,0.16666666666666663
+Buildings_score,0.1111111111111111
+affected_lats_score,0.2222222222222222
+WaterBodies_score,0.2222222222222222
+medical_score,0.05555555555555555
+school_childcare_score,0.05555555555555555
+critical_cust_score,0.05555555555555555

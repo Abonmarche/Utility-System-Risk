@@ -4,7 +4,7 @@ from arcgis.features import GeoAccessor, GeoSeriesAccessor
 import os
 from datetime import datetime
 import numpy as np
-from sklearn.cluster import KMeans
+# from sklearn.cluster import KMeans
 from arcgis.gis import GIS
 import yaml
 import math
@@ -29,6 +29,7 @@ def get_gis(city_name: str, config_file: str) -> GIS:
     
     # Create GIS object
     gis = GIS(url, username, password)
+    print(f"Successfully connected to {city_name} GIS")
     return gis
 
 def format_feature_class_name(name: str) -> str:
@@ -227,7 +228,7 @@ def score_diameter(diameter):
         return 1
     elif 4 <= diameter <= 8:
         return 4
-    elif 8 < diameter <= 16:
+    elif 8 < diameter < 16:
         return 7
     elif diameter >= 16:
         return 10
@@ -298,7 +299,6 @@ def score_medical(medical):
         return 8
     else:
         return 0
-
 
 # Function to score the proximity to a critical customer
 def score_critical_cust(criticalcust):
@@ -424,6 +424,27 @@ user_gis = get_gis(user, config_file)
 # Export each feature service to a feature class
 for fc_name, url in feature_services:
     arcpy.conversion.ExportFeatures(url, fc_name)
+
+# Alternative Export Method
+for fc_name, url in feature_services:
+    try:
+        # Create a feature layer from the URL
+        from arcgis.features import FeatureLayer
+        fl = FeatureLayer(url)
+        
+        # Query all features - use the WKID integer directly
+        features = fl.query(where="1=1", out_sr=102690)  # Just use the WKID number
+        
+        # Convert to a spatially enabled DataFrame
+        sdf = features.sdf
+        
+        # Save to feature class
+        output_fc = os.path.join("memory", fc_name)
+        sdf.spatial.to_featureclass(output_fc)
+        print(f"Successfully exported {fc_name} using ArcGIS API")
+    except Exception as e:
+        print(f"Error exporting {fc_name} using ArcGIS API: {e}")
+        continue
 
 # list feature classes
 feature_classes = arcpy.ListFeatureClasses()
