@@ -4,7 +4,7 @@ from arcgis.features import GeoAccessor, GeoSeriesAccessor
 import os
 from datetime import datetime
 import numpy as np
-# from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans
 from arcgis.gis import GIS
 import yaml
 import math
@@ -46,48 +46,84 @@ def format_feature_class_name(name: str) -> str:
 def generate_near_table(water_main, near_feature_classes, results_folder):
     # Dictionary to store the dataframes
     dfs = {}
+    processed_features = []
+    
+    # Get the water main OBJECTID count to create dummy data if needed
+    water_main_count = int(arcpy.GetCount_management(water_main).getOutput(0))
+    
     # Iterate over the feature classes
     for fc in near_feature_classes:
-        # Create the output path
-        output_path = os.path.join(results_folder, "near_" + fc + ".csv")
-        # Near analysis
-        near_table = arcpy.analysis.GenerateNearTable(
-            in_features=water_main,
-            near_features=fc,
-            out_table=output_path,
-            search_radius="10000 Feet",
-            location="NO_LOCATION",
-            angle="NO_ANGLE",
-            closest="CLOSEST",
-            closest_count="0",
-            method="PLANAR",
-            distance_unit="Feet")
+        try:
+            # Check if feature class exists
+            if arcpy.Exists(fc):
+                # Create the output path
+                output_path = os.path.join(results_folder, "near_" + fc + ".csv")
+                
+                # Near analysis
+                near_table = arcpy.analysis.GenerateNearTable(
+                    in_features=water_main,
+                    near_features=fc,
+                    out_table=output_path,
+                    search_radius="10000 Feet",
+                    location="NO_LOCATION",
+                    angle="NO_ANGLE",
+                    closest="CLOSEST",
+                    closest_count="0",
+                    method="PLANAR",
+                    distance_unit="Feet")
 
-        # Convert near table csv to dataframe
-        near_df = pd.read_csv(output_path)
+                # Convert near table csv to dataframe
+                near_df = pd.read_csv(output_path)
 
-        # remove the out_table
-        os.remove(output_path)
-        # remove the .xml, .ini, and .csv.xml files the geoprocess also created
-        for file in os.listdir(results_folder):
-            if file.endswith(".xml") or file.endswith(".ini"):
-                os.remove(os.path.join(results_folder, file))
+                # Clean up temp files
+                try:
+                    os.remove(output_path)
+                    for file in os.listdir(results_folder):
+                        if file.endswith(".xml") or file.endswith(".ini"):
+                            os.remove(os.path.join(results_folder, file))
+                except Exception as e:
+                    print(f"Warning: Failed to clean up temp files: {e}")
 
-        # rename the column in the near_df from NEAR_DIST to the name of the feature class
-        near_df.rename(columns={'NEAR_DIST': fc}, inplace=True)
-        # drop the columns OBJECTID and NEAR_FID
-        near_df = near_df.drop(columns=['NEAR_FID'])
+                # rename the column in the near_df from NEAR_DIST to the name of the feature class
+                near_df.rename(columns={'NEAR_DIST': fc}, inplace=True)
+                # drop the columns OBJECTID and NEAR_FID
+                near_df = near_df.drop(columns=['NEAR_FID'])
 
-        # Add the dataframe to the dictionary
-        dfs[fc] = near_df
-
+                # Add the dataframe to the dictionary
+                dfs[fc] = near_df
+                processed_features.append(fc)
+                print(f"Successfully processed near analysis for {fc}")
+            else:
+                print(f"Warning: Feature class {fc} does not exist or is not available. Creating dummy data.")
+                # Create dummy dataframe with max distance values (indicating no proximity)
+                dummy_df = pd.DataFrame()
+                dummy_df['IN_FID'] = range(1, water_main_count + 1)
+                dummy_df[fc] = 9999999  # Large value to indicate no proximity
+                dfs[fc] = dummy_df
+        except Exception as e:
+            print(f"Error processing near analysis for {fc}: {e}")
+            # Create dummy dataframe as fallback
+            dummy_df = pd.DataFrame()
+            dummy_df['IN_FID'] = range(1, water_main_count + 1)
+            dummy_df[fc] = 9999999  # Large value to indicate no proximity
+            dfs[fc] = dummy_df
+    
+    # Check if we have any dataframes
+    if not dfs:
+        print("Warning: No feature classes could be processed for near analysis")
+        # Create an empty dataframe with just IN_FID
+        empty_df = pd.DataFrame()
+        empty_df['IN_FID'] = range(1, water_main_count + 1)
+        return empty_df
+    
     # Initialize Near_results_df with the first dataframe in dfs
     Near_results_df = next(iter(dfs.values()))
 
-    # Merge the dataframes with the Near_results_df removing the IN_FID column each time
+    # Merge the dataframes with the Near_results_df
     for key, value in list(dfs.items())[1:]:
         Near_results_df = pd.merge(Near_results_df, value, left_on='IN_FID', right_on='IN_FID', how='left')
 
+    print(f"Near analysis completed for features: {processed_features}")
     return Near_results_df
 
 # Function to analyze the affected customers
@@ -226,11 +262,11 @@ def score_diameter(diameter):
     # Apply the scoring
     if diameter < 4:
         return 1
-    elif 4 <= diameter <= 8:
+    elif 4 <= diameter < 8:
         return 4
-    elif 8 < diameter < 16:
+    elif 8 <= diameter < 12:
         return 7
-    elif diameter >= 16:
+    elif diameter >= 12:
         return 10
 
 # Function to score the proximity to a railroad
@@ -248,6 +284,16 @@ def score_railroad(railroad):
 
 # Function to score the proximity to a water body 
 def score_waterbodies(WaterAreas, WaterLines):
+    # Handle missing or null values
+    if pd.isnull(WaterAreas):
+        WaterAreas = float('inf')  # Effectively ignores this value
+    if pd.isnull(WaterLines):
+        WaterLines = float('inf')  # Effectively ignores this value
+        
+    # If both are missing/null, return default score
+    if WaterAreas == float('inf') and WaterLines == float('inf'):
+        return 0  # Default score for no water body data
+    
     waterbodies = min(WaterAreas, WaterLines)
     if waterbodies == 0:
         return 10
@@ -375,96 +421,197 @@ arcpy.env.maintainAttachments = False
 arcpy.env.outputCoordinateSystem = coordinate_system
 dir_path = os.getcwd()
 
-# User Variables
 # Define config file and GIS user
 config_file = "../CityLogins.yaml"
-user = 'Decatur'
 
-results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\DecaturResults"
+#---------------------------------Decatur Variables---------------------------------
+# Decatur variables
+# user = 'Decatur'
+
+# results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\DecaturResults"
+# # *keep feature_services in this order*
+# feature_services = [
+#     ("WaterMain", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Water_Distribution_System/FeatureServer/12"), #0
+#     ("WaterLaterals", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Water_Distribution_System/FeatureServer/13"), #1
+#     ("CriticalCustomers", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/3"), #2
+#     ("SchoolChildcare", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/1"), #3
+#     ("Healthcare", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/2"), #4
+#     ("Roadway", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/6"), #5
+#     ("Buildings", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/10"), #6
+#     ("WaterLines", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/4"), #7
+#     ("WaterAreas", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/7"), #8
+#     ("ROW", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/8"), #9
+#     ("Parcels", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/9"), #10
+#     ("isozones", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/IsoZone/FeatureServer/0"), #11
+#     ("Railroad", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/5") #12
+# ]
+
+# # New variable to store a list of static features to analyze
+# features_to_analyze = ["Buildings", "Railroad", "ROW", "WaterAreas", "WaterLines"]
+
+# # water main fields
+# UniqueID = "FACILITYID".lower()
+# InstallDate = "installdate".lower()
+# Material = "MATERIAL".lower()
+# Diameter = "DIAMETER".lower()
+
+# # roadway values
+# RoadwayType = "Road".lower()
+# MajorRoad = "Major Road"
+# MinorRoad = "Minor Road"
+# MajorIntersection = "Major Intersection"
+# MinorIntersection = "Minor Intersection"
+
+# # Parcels fields
+# ParcelUID = "final_pin".lower()
+#------------------------------------------------------------------------------------------------
+
+#---------------------------------Allegan Variables---------------------------------
+# Allegan variables
+user = 'Abonmarche'
+
+results_folder = r"C:\Users\ggarcia\OneDrive - Abonmarche\Documents\GitHub\Utility-System-Risk\AlleganThirdResults"
 # *keep feature_services in this order*
 feature_services = [
-    ("WaterMain", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Water_Distribution_System/FeatureServer/12"), #0
-    ("WaterLaterals", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Water_Distribution_System/FeatureServer/13"), #1
-    ("CriticalCustomers", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/3"), #2
-    ("SchoolChildcare", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/1"), #3
-    ("Healthcare", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/2"), #4
-    ("Roadway", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/6"), #5
-    ("Buildings", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/10"), #6
-    ("WaterLines", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/4"), #7
-    ("WaterAreas", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/7"), #8
-    ("ROW", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/8"), #9
-    ("Parcels", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/9"), #10
-    ("isozones", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/IsoZone/FeatureServer/0"), #11
-    ("Railroad", "https://services3.arcgis.com/oLBR41j9nVxBv9mh/arcgis/rest/services/Decatur_2024_Working_Analysis/FeatureServer/5") #12
+    ("WaterMain", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/6"), #0
+    ("WaterLaterals", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_Water/FeatureServer/4"), #1
+    ("CriticalCustomers", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/1"), #2
+    ("SchoolChildcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/2"), #3
+    ("Healthcare", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/3"), #4
+    ("Roadway", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/4"), #5
+    ("Buildings", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/5"), #6
+    ("WaterLines", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/6"), #7
+    ("WaterAreas", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/7"), #8
+    ("ROW", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/8"), #9
+    ("Parcels", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_2024_Working_Analysis2/FeatureServer/9"), #10
+    ("isozones", "https://services6.arcgis.com/o5a9nldztUcivksS/arcgis/rest/services/Allegan_IsoZone/FeatureServer/0") #11
 ]
 
 # New variable to store a list of static features to analyze
 features_to_analyze = ["Buildings", "Railroad", "ROW", "WaterAreas", "WaterLines"]
 
 # water main fields
-UniqueID = "FACILITYID"
-InstallDate = "PLACEDINSE"
-Material = "MATERIAL"
-Diameter = "DIAMETER"
+UniqueID = "FACILITYID".lower()
+InstallDate = "PLACEDINSE".lower()
+Material = "MATERIAL".lower()
+Diameter = "DIAMETER".lower()
 
 # roadway values
-RoadwayType = "Road"
+RoadwayType = "Road".lower()
 MajorRoad = "Major Road"
 MinorRoad = "Minor Road"
 MajorIntersection = "Major Intersection"
 MinorIntersection = "Minor Intersection"
 
 # Parcels fields
-ParcelUID = "FinalPIN"
+ParcelUID = "PARCELID".lower()
+#------------------------------------------------------------------------------------------------
 
 # Connect to GIS
 user_gis = get_gis(user, config_file)
 
 # Begin Analysis
-# Export each feature service to a feature class
-for fc_name, url in feature_services:
-    arcpy.conversion.ExportFeatures(url, fc_name)
+# Export each feature service to a feature class and track which ones are available
+available_features = []
+missing_features = []
 
-# Alternative Export Method
+print("Beginning feature export...")
 for fc_name, url in feature_services:
     try:
-        # Create a feature layer from the URL
-        from arcgis.features import FeatureLayer
-        fl = FeatureLayer(url)
-        
-        # Query all features - use the WKID integer directly
-        features = fl.query(where="1=1", out_sr=102690)  # Just use the WKID number
-        
-        # Convert to a spatially enabled DataFrame
-        sdf = features.sdf
-        
-        # Save to feature class
-        output_fc = os.path.join("memory", fc_name)
-        sdf.spatial.to_featureclass(output_fc)
-        print(f"Successfully exported {fc_name} using ArcGIS API")
+        # Try ArcGIS API for Python approach first (more reliable with field types)
+        try:
+            from arcgis.features import FeatureLayer
+            fl = FeatureLayer(url)
+            
+            # Query all features
+            features = fl.query(where="1=1", out_sr=102690)  # Using WKID directly
+            
+            # Check if there are features
+            if len(features.features) > 0:
+                # Convert to a spatially enabled DataFrame
+                sdf = features.sdf
+                
+                # Save to feature class
+                output_fc = os.path.join("memory", fc_name)
+                sdf.spatial.to_featureclass(output_fc)
+                print(f"Successfully exported {fc_name} using ArcGIS API")
+                available_features.append(fc_name)
+            else:
+                print(f"Warning: No features found in {fc_name}")
+                missing_features.append(fc_name)
+        except Exception as e:
+            # Fall back to ArcPy if ArcGIS API approach fails
+            print(f"ArcGIS API export failed for {fc_name}, trying ArcPy: {e}")
+            arcpy.conversion.ExportFeatures(url, fc_name)
+            
+            # Verify the feature class was created and has features
+            if arcpy.Exists(fc_name) and int(arcpy.GetCount_management(fc_name).getOutput(0)) > 0:
+                print(f"Successfully exported {fc_name} using ArcPy")
+                available_features.append(fc_name)
+            else:
+                print(f"Warning: No features in {fc_name} after export")
+                missing_features.append(fc_name)
+                
     except Exception as e:
-        print(f"Error exporting {fc_name} using ArcGIS API: {e}")
-        continue
+        print(f"Error exporting {fc_name}: {e}")
+        missing_features.append(fc_name)
+
+print(f"Available features: {available_features}")
+print(f"Missing features: {missing_features}")
 
 # list feature classes
 feature_classes = arcpy.ListFeatureClasses()
 feature_classes
 
-# split the Roadway feature class by the RoadwayType field
-arcpy.analysis.SplitByAttributes(feature_services[5][0], workspace, RoadwayType)
+# for each feature class list the spatial reference
+for fc in feature_classes:
+    desc = arcpy.Describe(fc)
+    print(f"{fc}: {desc.spatialReference.name}")
 
-# List of road feature classes to use in near analysis
-near_feature_classes = [
-    format_feature_class_name(MajorRoad),
-    format_feature_class_name(MajorIntersection),
-    format_feature_class_name(MinorIntersection),
-    format_feature_class_name(MinorRoad)
-]
+# arcpy list fields check
+fields = arcpy.ListFields("WaterMain")
+field_names = [field.name for field in fields]
+field_names
 
-# Add other static feature classes
-near_feature_classes.extend(features_to_analyze)
+# Handle Roadway processing with error handling
+road_feature_classes = []
+try:
+    if feature_services[5][0] in available_features:
+        print(f"Splitting roadway feature class by attributes...")
+        arcpy.analysis.SplitByAttributes(feature_services[5][0], workspace, RoadwayType)
+        
+        # Check which road types were created
+        all_fcs = arcpy.ListFeatureClasses()
+        road_feature_classes = [
+            fc for fc in all_fcs if fc in [
+                format_feature_class_name(MajorRoad),
+                format_feature_class_name(MajorIntersection),
+                format_feature_class_name(MinorIntersection),
+                format_feature_class_name(MinorRoad)
+            ]
+        ]
+        print(f"Created road feature classes: {road_feature_classes}")
+    else:
+        print(f"Warning: Roadway feature class {feature_services[5][0]} not available")
+except Exception as e:
+    print(f"Error splitting roadway feature class: {e}")
+
+# List of road feature classes to use in near analysis (only those that exist)
+near_feature_classes = road_feature_classes
+
+# Add other static feature classes that exist
+available_static_features = [fc for fc in features_to_analyze if fc in available_features]
+near_feature_classes.extend(available_static_features)
+
+print(f"Feature classes for near analysis: {near_feature_classes}")
 
 water_main = feature_services[0][0]
+# To be safe, delete any current variations of a length field
+fields = arcpy.ListFields(water_main)
+field_names = [field.name for field in fields]
+fields_to_remove = [field for field in field_names if field.lower() == 'length']
+if fields_to_remove:
+    arcpy.management.DeleteField(water_main, fields_to_remove)
 
 # calculate a new field for the length of the water main
 arcpy.management.CalculateGeometryAttributes(
@@ -492,9 +639,27 @@ Near_results_df = Near_results_df.drop(columns=['IN_FID'])
 # Save the Near_results_df to a csv file using dir_path
 Near_results_df.to_csv(os.path.join(results_folder, "NearResults.csv"), index=False)
 
-isolation_zones_fc = feature_services[-2][0]
-lateral_lines_fc = feature_services[1][0]
-summary_df = affected_customer_analysis(isolation_zones_fc, lateral_lines_fc, results_folder)
+# Handle isolation zones analysis with error handling
+try:
+    # Use appropriate index based on which branch we're in
+    isolation_zones_index = -1  # Allegan branch
+    if "Railroad" in available_features:
+        isolation_zones_index = -2  # Decatur branch
+    
+    isolation_zones_fc = feature_services[isolation_zones_index][0]
+    lateral_lines_fc = feature_services[1][0]
+    
+    if isolation_zones_fc in available_features and lateral_lines_fc in available_features:
+        print(f"Processing affected customer analysis...")
+        summary_df = affected_customer_analysis(isolation_zones_fc, lateral_lines_fc, results_folder)
+    else:
+        print(f"Warning: Missing required feature classes for affected customer analysis")
+        # Create empty summary dataframe
+        summary_df = pd.DataFrame(columns=['zone', 'FREQUENCY'])
+except Exception as e:
+    print(f"Error processing affected customer analysis: {e}")
+    # Create empty summary dataframe
+    summary_df = pd.DataFrame(columns=['zone', 'FREQUENCY'])
 
 # add a spatial join to the water main feature class to get the isolation zones into the water mains
 main_iso_join = "main_iso_join"
@@ -515,9 +680,66 @@ mains_iso_df['affected_lats'] = mains_iso_df['zone'].map(summary_df.set_index('z
 # merge the mains_iso_df with the Near_results_df
 mains_iso_df = pd.merge(Near_results_df, mains_iso_df, left_on=UniqueID, right_on=UniqueID, how='left')
 
-main_schools_df = identify_critical_customer_connections(feature_services[3][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
-healthcare_df = identify_critical_customer_connections(feature_services[4][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
-criticalcustomer_df = identify_critical_customer_connections(feature_services[2][0], feature_services[10][0], feature_services[1][0], feature_services[0][0], ParcelUID)
+# Process critical customer connections with error handling
+def create_empty_critical_df(feature_name):
+    """Creates an empty dataframe with the right structure for critical connections"""
+    column_name = os.path.basename(feature_name).split('.')[0]
+    empty_df = pd.DataFrame(columns=[UniqueID, column_name])
+    return empty_df
+
+# Process SchoolChildcare
+try:
+    if (feature_services[3][0] in available_features and 
+        feature_services[10][0] in available_features and 
+        feature_services[1][0] in available_features and 
+        feature_services[0][0] in available_features):
+        
+        print(f"Processing critical connections for {feature_services[3][0]}...")
+        main_schools_df = identify_critical_customer_connections(
+            feature_services[3][0], feature_services[10][0], 
+            feature_services[1][0], feature_services[0][0], ParcelUID)
+    else:
+        print(f"Warning: Missing required feature classes for {feature_services[3][0]} analysis")
+        main_schools_df = create_empty_critical_df(feature_services[3][0])
+except Exception as e:
+    print(f"Error processing {feature_services[3][0]}: {e}")
+    main_schools_df = create_empty_critical_df(feature_services[3][0])
+
+# Process Healthcare
+try:
+    if (feature_services[4][0] in available_features and 
+        feature_services[10][0] in available_features and 
+        feature_services[1][0] in available_features and 
+        feature_services[0][0] in available_features):
+        
+        print(f"Processing critical connections for {feature_services[4][0]}...")
+        healthcare_df = identify_critical_customer_connections(
+            feature_services[4][0], feature_services[10][0], 
+            feature_services[1][0], feature_services[0][0], ParcelUID)
+    else:
+        print(f"Warning: Missing required feature classes for {feature_services[4][0]} analysis")
+        healthcare_df = create_empty_critical_df(feature_services[4][0])
+except Exception as e:
+    print(f"Error processing {feature_services[4][0]}: {e}")
+    healthcare_df = create_empty_critical_df(feature_services[4][0])
+
+# Process CriticalCustomers
+try:
+    if (feature_services[2][0] in available_features and 
+        feature_services[10][0] in available_features and 
+        feature_services[1][0] in available_features and 
+        feature_services[0][0] in available_features):
+        
+        print(f"Processing critical connections for {feature_services[2][0]}...")
+        criticalcustomer_df = identify_critical_customer_connections(
+            feature_services[2][0], feature_services[10][0], 
+            feature_services[1][0], feature_services[0][0], ParcelUID)
+    else:
+        print(f"Warning: Missing required feature classes for {feature_services[2][0]} analysis")
+        criticalcustomer_df = create_empty_critical_df(feature_services[2][0])
+except Exception as e:
+    print(f"Error processing {feature_services[2][0]}: {e}")
+    criticalcustomer_df = create_empty_critical_df(feature_services[2][0])
 
 # one at a time merge the critical customer dataframes with the mains_iso_df
 mains_iso_df = pd.merge(mains_iso_df, main_schools_df, left_on=UniqueID, right_on=UniqueID, how='left')
@@ -537,44 +759,74 @@ mains_iso_df = mains_iso_df.dropna(subset=['LENGTH'])
 
 # Score assignment
 # Check and apply scoring for Diameter
-if Diameter in mains_iso_df.columns:
+if Diameter in mains_iso_df.columns and not mains_iso_df[Diameter].isna().all():
     mains_iso_df['DIAMETER_score'] = mains_iso_df[Diameter].apply(score_diameter)
+    print("Added DIAMETER_score to scoring")
 
-# Check and apply scoring for Railroad if 'Railroad' column exists
-if 'Railroad' in mains_iso_df.columns:
+# Check and apply scoring for Railroad if 'Railroad' column exists and has data
+if 'Railroad' in mains_iso_df.columns and not mains_iso_df['Railroad'].isna().all():
     mains_iso_df['Railroad_score'] = mains_iso_df['Railroad'].apply(score_railroad)
+    print("Added Railroad_score to scoring")
 
-# Check and apply scoring for Buildings if 'Buildings' column exists
-if 'Buildings' in mains_iso_df.columns:
+# Check and apply scoring for Buildings if 'Buildings' column exists and has data
+if 'Buildings' in mains_iso_df.columns and not mains_iso_df['Buildings'].isna().all():
     mains_iso_df['Buildings_score'] = mains_iso_df['Buildings'].apply(score_buildings)
+    print("Added Buildings_score to scoring")
 
-# Check and apply scoring for Water Bodies if 'WaterAreas' and 'WaterLines' columns exist
-if 'WaterAreas' in mains_iso_df.columns and 'WaterLines' in mains_iso_df.columns:
-    mains_iso_df['WaterBodies_score'] = mains_iso_df.apply(lambda row: score_waterbodies(row['WaterAreas'], row['WaterLines']), axis=1)
+# Check and apply scoring for Water Bodies if either 'WaterAreas' or 'WaterLines' exists and has data
+has_water_areas = 'WaterAreas' in mains_iso_df.columns and not mains_iso_df['WaterAreas'].isna().all()
+has_water_lines = 'WaterLines' in mains_iso_df.columns and not mains_iso_df['WaterLines'].isna().all()
 
-# Check and apply scoring for Affected Laterals if 'affected_lats' column exists
-if 'affected_lats' in mains_iso_df.columns:
+if has_water_areas or has_water_lines:
+    # Use the score_waterbodies function which already handles missing columns
+    mains_iso_df['WaterBodies_score'] = mains_iso_df.apply(
+        lambda row: score_waterbodies(
+            row['WaterAreas'] if has_water_areas else float('inf'),
+            row['WaterLines'] if has_water_lines else float('inf')
+        ), 
+        axis=1
+    )
+    print("Added WaterBodies_score to scoring using available water features")
+
+# Check and apply scoring for Affected Laterals if 'affected_lats' column exists and has data
+if 'affected_lats' in mains_iso_df.columns and not mains_iso_df['affected_lats'].isna().all():
     mains_iso_df['affected_lats_score'] = mains_iso_df['affected_lats'].apply(score_affected_lats)
+    print("Added affected_lats_score to scoring")
 
-# Check and apply scoring for School/Childcare if 'SchoolChildcare' column exists
+# Check and apply scoring for School/Childcare if column exists and has data
 school_column = os.path.basename(feature_services[3][0]).split('.')[0]
-if school_column in mains_iso_df.columns:
+if school_column in mains_iso_df.columns and not mains_iso_df[school_column].isna().all():
     mains_iso_df['school_childcare_score'] = mains_iso_df[school_column].apply(score_school_childcare)
+    print(f"Added school_childcare_score to scoring from {school_column}")
 
-# Check and apply scoring for Healthcare if 'Healthcare' column exists
+# Check and apply scoring for Healthcare if column exists and has data
 healthcare_column = os.path.basename(feature_services[4][0]).split('.')[0]
-if healthcare_column in mains_iso_df.columns:
+if healthcare_column in mains_iso_df.columns and not mains_iso_df[healthcare_column].isna().all():
     mains_iso_df['medical_score'] = mains_iso_df[healthcare_column].apply(score_medical)
+    print(f"Added medical_score to scoring from {healthcare_column}")
 
-# Check and apply scoring for Critical Customers if 'CriticalCustomers' column exists
+# Check and apply scoring for Critical Customers if column exists and has data
 critical_customer_column = os.path.basename(feature_services[2][0]).split('.')[0]
-if critical_customer_column in mains_iso_df.columns:
+if critical_customer_column in mains_iso_df.columns and not mains_iso_df[critical_customer_column].isna().all():
     mains_iso_df['critical_cust_score'] = mains_iso_df[critical_customer_column].apply(score_critical_cust)
+    print(f"Added critical_cust_score to scoring from {critical_customer_column}")
 
-# Check and apply scoring for Roadway if necessary columns exist
+# Check and apply scoring for Roadway if necessary columns exist with data
 required_roadway_columns = {'Major_Intersection', 'Major_Road', 'Minor_Intersection', 'Minor_Road', 'ROW'}
-if required_roadway_columns.issubset(mains_iso_df.columns):
+has_required_roadway_data = all(
+    (col in mains_iso_df.columns and not mains_iso_df[col].isna().all()) 
+    for col in required_roadway_columns
+)
+
+if has_required_roadway_data:
     mains_iso_df['Roadway_score'] = mains_iso_df.apply(score_roadway, axis=1)
+    print("Added Roadway_score to scoring")
+else:
+    # Check if we have some but not all road data
+    available_road_cols = [col for col in required_roadway_columns 
+                            if col in mains_iso_df.columns and not mains_iso_df[col].isna().all()]
+    if available_road_cols:
+        print(f"Missing some required roadway columns. Available: {available_road_cols}")
 
 # Calculate final scores
 mains_iso_df = calculate_final_scores(mains_iso_df, results_folder)
